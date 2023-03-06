@@ -1,147 +1,8 @@
-use crate::parser::Expression;
+use crate::program::Program;
 
-/// Represents a program while it's running. Different to Expression as programs
-/// can also have closures.
-#[derive(PartialEq, Clone, Debug)]
-pub enum Program {
-    /// An outright lambda expression. Stores a list of all the places the variable should be
-    /// substituted to,
-    ///
-    /// A closure is a wrapper of any other program state, but has an id. Programs can
-    /// look equivalent sometimes but because they were passed in in different contexts
-    /// they won't have the same meaning. For example;
-    /// ```
-    /// let simplified = parse_string("(\\x.\\y. (\\f.x f) (\\g.y))yz")
-    ///     .map(|expr| simplify_expression(&expr))
-    ///     .unwrap();
-    ///
-    /// let expected = parse_string("y (\\g. z)").unwrap();
-    ///
-    /// // a naive implementation would do the following;
-    /// // (\x.\y.(\f.x f)(\g. y)) y z
-    /// // (\y. (\f. y f) (\g. y)) z
-    /// // (\f. z f)(\g.z)
-    /// // z (\g. z)
-    ///
-    /// // whereas the correct reduction is:
-    /// // (\x.\y.(\f.x f)(\g. y)) y z
-    /// // (\y. (\f. y f) (\g. y)) z
-    /// // (\f. y f)(\g.z)
-    /// // y (\g. z)
-    ///
-    /// assert_eq!(expected, simplified);
-    /// ```
-    Lambda(char, u32, Box<Program>),
-    /// A variable expression; stores the name of the variable along with an optional capture id.
-    ///
-    /// The capture id is optional because some variables are not captured by a surrounding lambda.
-    Variable(char, Option<u32>),
-    /// An application expression
-    Application(Box<Program>, Box<Program>),
-}
-
-impl std::fmt::Display for Program {
-    /// fmt implementation that uses the least amount of brackets feasible for maximum readability
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Variable(x, _) => write!(f, "{}", *x),
-            Self::Lambda(x, _, term) => write!(f, "\\{}. {}", x, term),
-            Self::Application(lhs, rhs) => {
-                let lhs_is_lambda = matches!(lhs.as_ref(), Self::Lambda(_, _, _));
-                let rhs_is_lambda = matches!(rhs.as_ref(), Self::Lambda(_, _, _));
-
-                if lhs_is_lambda {
-                    write!(f, "({lhs}) ")?;
-                } else {
-                    write!(f, "{lhs} ")?;
-                }
-
-                if let Self::Application(_, _) = rhs.as_ref() {
-                    write!(f, "({rhs})")
-                } else if rhs_is_lambda {
-                    write!(f, "({rhs})")
-                } else {
-                    write!(f, "{rhs}")
-                }
-            }
-        }
-    }
-}
-
-// impl std::fmt::Debug for Program {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         let d: &dyn std::fmt::Display = &self;
-//         d.fmt(f)
-//     }
-// }
-
-impl Program {
-    pub fn from_expression(expression: &Expression) -> Self {
-        let mut captures = Vec::new();
-        let mut capture_id = 0;
-
-        Self::from_expression_with_stack(expression, &mut captures, &mut capture_id)
-    }
-
-    fn from_expression_with_stack(
-        expression: &Expression,
-        lambda_captures: &mut Vec<(char, u32)>,
-        capture_id: &mut u32,
-    ) -> Self {
-        let program = match expression {
-            Expression::Lambda(x, def) => {
-                *capture_id += 1;
-
-                let our_capture = *capture_id;
-                lambda_captures.push((*x, our_capture));
-
-                let inner = Box::new(Self::from_expression_with_stack(
-                    def,
-                    lambda_captures,
-                    capture_id,
-                ));
-
-                // outside of the capture scope, we don't want other variables to think
-                // they belong to this function
-                lambda_captures.retain(|v| *v != (*x, our_capture));
-
-                Program::Lambda(*x, our_capture, inner)
-            }
-            Expression::Variable(x) => {
-                // the capture with the same variable name and the highest id is the one we want to pick, right?
-                // whichever capture variable with the same name has the (highest?) id is the one we want?
-                let nearest_capture = lambda_captures
-                    .iter()
-                    .filter(|(v, _)| *v == *x)
-                    .map(|(_, cid)| *cid)
-                    .max();
-
-                Program::Variable(*x, nearest_capture)
-            }
-            Expression::Application(lhs, rhs) => {
-                // with capture_id as a mutable reference, this ordering will number the lhs of the ast first
-                let lhs_inner = Box::new(Self::from_expression_with_stack(
-                    lhs,
-                    lambda_captures,
-                    capture_id,
-                ));
-                let rhs_inner = Box::new(Self::from_expression_with_stack(
-                    rhs,
-                    lambda_captures,
-                    capture_id,
-                ));
-
-                Program::Application(lhs_inner, rhs_inner)
-            }
-        };
-
-        program
-    }
-}
-
-/// Evaluates if a given expression has been fully simplified (recursively)
-pub fn is_simplified(term: &Program) -> bool {
-    match term {
+/// Evaluates if a given expression has been fully simplified (no longer recursively)
+pub fn is_simplified(program: &Program) -> bool {
+    match program {
         Program::Variable(_, _) => true,
         Program::Application(lhs, rhs) => {
             if let Program::Lambda(_, _, _) = lhs.as_ref() {
@@ -155,36 +16,53 @@ pub fn is_simplified(term: &Program) -> bool {
 }
 
 /// Simplifies an expression into an atomic form. This function will halt when given programs that halt.
+pub fn simplify(program: &Program) -> Program {
+    // TODO define the set of "safe" functions and simplify recursively here
 
-// for now, will not apply recursively
-// TODO: thinking this program is breaking one of the tests. fix it.
-pub fn simplify_expression(program: &Program) -> Program {
-    let mut term = program.clone();
-
-    while !is_simplified(&term) {
-        term = match &term {
-            Program::Variable(_, _) => term,
-            Program::Lambda(x, c_id, expression) => {
-                Program::Lambda(*x, *c_id, Box::new(simplify_expression(expression)))
-            }
-            Program::Application(lhs, rhs) => match lhs as &Program {
-                Program::Lambda(_, capture_id, inner) => {
-                    let applied = replace_captures_with(&inner, *capture_id, &rhs);
-
-                    simplify_expression(&applied)
-                }
-                _ => Program::Application(
-                    Box::new(simplify_expression(lhs)),
-                    Box::new(simplify_expression(rhs)),
-                ),
-            },
-        };
-    }
-
-    term
+    program.clone()
 }
 
-fn replace_captures_with(program: &Program, capture_id: u32, expression: &Program) -> Program {
+pub fn is_reducable(program: &Program) -> bool {
+    match program {
+        Program::Application(lhs, _) => {
+            match lhs as &Program {
+                Program::Lambda(_, _, _) => true,
+                Program::Application(_, _) => is_reducable(lhs),
+                Program::Variable(_, _) => false,
+            }
+        },
+        _ => false,
+    }
+}
+
+pub fn reduce(program: &Program) -> Program {
+    match program {
+        Program::Application(lhs, rhs) => {
+            match lhs as &Program {
+                Program::Application(_, _) => {
+                    Program::Application(Box::new(reduce(lhs)), rhs.clone())
+                },
+                Program::Lambda(_, capture_id, inner) => {
+                    replace_captures_with(inner, *capture_id, rhs)
+                },
+                _ => program.clone(),
+            }
+        },
+        _ => program.clone(),
+    }
+}
+
+pub fn run(program: &Program) -> Program {
+    let mut state = program.clone();
+
+    while is_reducable(&state) {
+        state = reduce(&state)
+    }
+
+    state
+}
+
+fn replace_captures_with(program: &Program, capture_id: u64, expression: &Program) -> Program {
     match program {
         Program::Variable(_, c_id) => match c_id {
             Some(x) if *x == capture_id => expression.clone(),
@@ -204,15 +82,15 @@ fn replace_captures_with(program: &Program, capture_id: u32, expression: &Progra
 
 #[cfg(test)]
 pub mod tests {
-    use crate::parser::parse_string;
+    use crate::{parser::parse_string, interpreter::run};
 
-    use super::{simplify_expression, Program};
+    use super::Program;
 
     #[test]
     fn does_not_simplify_atomic_expression() {
         let expression = parse_string("\\x.xy")
             .map(|expr| Program::from_expression(&expr))
-            .map(|program| simplify_expression(&program))
+            .map(|program| run(&program))
             .unwrap();
 
         assert_eq!(
@@ -232,7 +110,7 @@ pub mod tests {
     fn simplifies_applicable_expression() {
         let expression = parse_string("(\\x.xy)z")
             .map(|expr| Program::from_expression(&expr))
-            .map(|program| simplify_expression(&program))
+            .map(|program| run(&program))
             .unwrap();
 
         assert_eq!(
@@ -288,7 +166,6 @@ pub mod tests {
             Program::from_expression(&parse_string("(\\x.\\y. (\\f. x f) (\\g. y)) y z").unwrap());
 
         assert_eq!(
-            program,
             Program::Application(
                 Box::new(Program::Application(
                     Box::new(Program::Lambda(
@@ -317,7 +194,8 @@ pub mod tests {
                     Box::new(Program::Variable('y', None))
                 )),
                 Box::new(Program::Variable('z', None))
-            )
+            ),
+            program
         )
     }
 
@@ -325,7 +203,7 @@ pub mod tests {
     fn closures_are_not_same_as_var_names() {
         let simplified = parse_string("(\\x.\\y. (\\f. x f) (\\g. y)) y z")
             .map(|expr| Program::from_expression(&expr))
-            .map(|program| simplify_expression(&program))
+            .map(|program| run(&program))
             .unwrap();
 
         // this would be nicer: must implement equality first, that recognises isomorphic capture ids
@@ -353,5 +231,13 @@ pub mod tests {
         // y (\g. z)
 
         assert_eq!(expected, simplified);
+    }
+
+    #[test]
+    fn trivial_y_combinator_evaluates_without_halting() {
+        let _ = parse_string("(\\f.(\\x.f(x x))(\\x.f(x x))) (\\f.\\x. x) y")
+            .map(|expr| Program::from_expression(&expr))
+            .map(|program| run(&program))
+            .unwrap();
     }
 }
