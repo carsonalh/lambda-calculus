@@ -1,9 +1,9 @@
+use rand::Rng;
 use std::collections::HashMap;
 use crate::parser::Expression;
 
 /// Represents a program while it's running. Different to Expression as programs
 /// can also have closures.
-#[derive(Clone)]
 pub enum Program {
     /// A lambda expression that stores the id of the captured variable. Variables that are captured
     /// by this definition should have an id that matches this expression.
@@ -22,67 +22,6 @@ impl Program {
         let mut rng = rand::thread_rng();
 
         Self::from_expression_with_stack(expression, &mut captures, &mut rng).0
-    }
-
-    /// In an application tree, gets a `Some` with the left most program.
-    /// 
-    /// If self is not an application, returns `None`.
-    pub fn leftmost_application(&self) -> Option<&Self> {
-        let mut application = self;
-
-        if !matches!(application, Self::Application(_, _)) {
-            return None;
-        }
-
-        while let Self::Application(lhs, _) = application {
-            application = lhs;
-        }
-
-        Some(application)
-    }
-
-    /// True if this program is a lambda that can have anything safely applied to it.
-    /// 
-    /// False if this program is not a lambda or if it is not a safe one.
-    /// 
-    /// TODO potentially optimise this to determine if any expression is safe
-    pub fn is_safe_lambda(&self) -> bool {
-        if let Self::Lambda(_, id, def) = self {
-            let mut captures = vec![*id];
-
-            let mut def: &Self = def;
-
-            loop {
-                match def {
-                    Self::Lambda(_, inner_id, inner_def) => {
-                        captures.push(*inner_id);
-                        def = inner_def;
-                    },
-                    _ => { break; }
-                }
-            }
-
-            // so at this point, def is the innermost definition of the lambda, i.e. it
-            // is either a variable or application
-
-            if let Self::Variable(_, _) = def {
-                return true;
-            }
-
-            if let Self::Application(_, _) = def {
-                let leftmost_application = def.leftmost_application().unwrap();
-
-                if let Self::Variable(_, id) = leftmost_application {
-                    return id.is_none() || !captures.contains(&id.unwrap());
-                } else if leftmost_application.is_safe_lambda() {
-                    return true;
-                }
-            }
-
-            unreachable!();
-        }
-
-        false
     }
 
     fn from_expression_with_stack<R: rand::Rng>(
@@ -129,6 +68,50 @@ impl Program {
         };
 
         (program, rng)
+    }
+
+    fn substitute_capture_id(&self, current_id: u64, new_id: u64) -> Self {
+        match self {
+            Self::Application(lhs, rhs) => {
+                Self::Application(
+                    Box::new(lhs.substitute_capture_id(current_id, new_id)),
+                    Box::new(rhs.substitute_capture_id(current_id, new_id))
+                )
+            },
+            Self::Lambda(x, inner_id, inner_def) => {
+                Self::Lambda(
+                    *x, *inner_id,
+                    Box::new(inner_def.substitute_capture_id(current_id, new_id))
+                )
+            },
+            Self::Variable(x, optional_var_id) => {
+                if let Some(var_id) = optional_var_id {
+
+                    if *var_id == current_id {
+                        Self::Variable(*x, Some(new_id))
+                    } else {
+                        Self::Variable(*x, Some(*var_id))
+                    }
+
+                } else {
+                    Self::Variable(*x, None)
+                }
+            }
+        }
+    }
+}
+
+impl Clone for Program {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Lambda(x, capture, inner) => {
+                let mut rng = rand::thread_rng();
+                let new_capture: u64 = rng.gen();
+                Self::Lambda(*x, new_capture, Box::new(inner.substitute_capture_id(*capture, new_capture).clone()))
+            },
+            Self::Application(lhs, rhs) => Self::Application(lhs.clone(), rhs.clone()),
+            Self::Variable(x, capture) => Self::Variable(*x, *capture),
+        }
     }
 }
 

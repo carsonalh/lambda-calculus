@@ -19,21 +19,11 @@ fn main() {
         if let Some(expression) = output {
             let mut term = program::Program::from_expression(&expression);
 
-            let mut i = 0;
-
             while interpreter::is_reducable(&term) {
                 term = interpreter::reduce(&term);
-
-                if i >= 20 {
-                    break;
-                }
-
-                i += 1;
             }
 
-            let simplified = interpreter::simplify(&term);
-
-            println!("{simplified}");
+            println!("{term}");
         } else {
             println!("invalid expression");
         }

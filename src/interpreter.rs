@@ -1,27 +1,5 @@
 use crate::program::Program;
 
-/// Evaluates if a given expression has been fully simplified (no longer recursively)
-pub fn is_simplified(program: &Program) -> bool {
-    match program {
-        Program::Variable(_, _) => true,
-        Program::Application(lhs, rhs) => {
-            if let Program::Lambda(_, _, _) = lhs.as_ref() {
-                false
-            } else {
-                is_simplified(lhs) && is_simplified(rhs)
-            }
-        }
-        Program::Lambda(_, _, def) => is_simplified(def),
-    }
-}
-
-/// Simplifies an expression into an atomic form. This function will halt when given programs that halt.
-pub fn simplify(program: &Program) -> Program {
-    // TODO define the set of "safe" functions and simplify recursively here
-
-    program.clone()
-}
-
 pub fn is_reducable(program: &Program) -> bool {
     match program {
         Program::Application(lhs, _) => {
