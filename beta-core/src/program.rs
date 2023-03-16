@@ -1,5 +1,6 @@
-use rand::Rng;
 use std::collections::HashMap;
+use rand::SeedableRng;
+
 use crate::parser::Expression;
 
 /// Represents a program while it's running. Different to Expression as programs
@@ -16,10 +17,14 @@ pub enum Program {
     Application(Box<Program>, Box<Program>),
 }
 
+struct ProgramState {
+    current_id: u64,
+}
+
 impl Program {
     pub fn from_expression(expression: &Expression) -> Self {
         let mut captures = HashMap::new();
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rngs::StdRng::seed_from_u64(0);
 
         Self::from_expression_with_stack(expression, &mut captures, &mut rng).0
     }

@@ -218,4 +218,12 @@ pub mod tests {
             .map(|program| run(&program))
             .unwrap();
     }
+
+    #[test]
+    fn nontrivial_y_combinator_evaluates_without_halting() {
+        let _ = parse_string("(\\f.(\\x.f(x x))(\\x.f(x x))) (\\f.\\a.a (f (\\p.\\q.a q p)) a) (\\t.\\s.t)")
+            .map(|expr| Program::from_expression(&expr))
+            .map(|program| run(&program))
+            .unwrap();
+    }
 }

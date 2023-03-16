@@ -1,12 +1,7 @@
+use beta_core::{parser, program, interpreter};
 use std::io::{self, Write};
 
-pub mod program;
-pub mod interpreter;
-pub mod lexer;
-pub mod parser;
-
 fn main() {
-    // this is a just a little REPL program that demonstrates how it all works
     loop {
         print!("λ> ");
         io::stdout().flush().unwrap();
