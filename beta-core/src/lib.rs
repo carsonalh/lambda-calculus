@@ -5,5 +5,4 @@ pub mod interpreter;
 
 pub use program::*;
 pub use lexer::*;
-pub use program::*;
 pub use interpreter::*;

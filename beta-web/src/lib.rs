@@ -8,9 +8,9 @@ pub fn run(source: &str) -> String {
         &parser::parse_string(source).unwrap()
     );
 
-    while program::is_reducable(&p) {
-        p = program::reduce(&p);
+    while interpreter::is_reducable(&p) {
+        p = interpreter::reduce(&p);
     }
 
-    format!("{}", program)
+    format!("{}", p)
 }

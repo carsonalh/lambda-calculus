@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use rand::SeedableRng;
+use rand::{SeedableRng, Rng};
 
 use crate::parser::Expression;
 
@@ -15,10 +15,6 @@ pub enum Program {
     Variable(char, Option<u64>),
     /// An application expression
     Application(Box<Program>, Box<Program>),
-}
-
-struct ProgramState {
-    current_id: u64,
 }
 
 impl Program {

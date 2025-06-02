@@ -1,4 +1,4 @@
-use crate::program::Program;
+pub use crate::program::Program;
 
 pub fn is_reducable(program: &Program) -> bool {
     match program {

@@ -1,3 +1,4 @@
 [workspace]
+resolver = "2"
 
 members = [ "beta-bin", "beta-core", "beta-web" ]
